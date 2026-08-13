@@ -3,7 +3,7 @@
  * Plugin Name: sonoTracks Discography
  * Plugin URI:  https://sono-tracks.com/
  * Description: sonoTracks で販売している自分の作品一覧を、ショートコード [sonotracks_discography] でサイトに表示します。作品を追加・公開・非公開にすると自動で反映されます。
- * Version:     1.3.0
+ * Version:     1.3.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author:      sono
@@ -49,7 +49,7 @@ if ( ! class_exists( 'SonoTracks_Discography' ) ) :
 
 final class SonoTracks_Discography {
 
-	const VERSION = '1.3.0';
+	const VERSION = '1.3.1';
 
 	/** 設定を1つの option にまとめる（増えたときに option が散らからないように） */
 	const OPTION = 'sonotracks_discography_settings';
@@ -590,8 +590,20 @@ final class SonoTracks_Discography {
 	 *   届かない間ずっと毎回タイムアウトを待つ。
 	 */
 	private static function fetch_update_info() {
-		$key    = self::CACHE_PREFIX . 'update';
-		$cached = get_transient( $key );
+		$key = self::CACHE_PREFIX . 'update';
+
+		// ★ 「ダッシュボード → 更新 → もう一度確認する」を押したときは、
+		//   キャッシュを見ずに取りに行く。押しても12時間ぶんの古い答えを
+		//   返していては、**確認したのに何も起きない**（実際にそう見えた）。
+		//   WordPress はこの操作を $_GET['force-check'] で伝える（update-core.php）。
+		// ★ 権限を確かめる。確かめないと、front から ?force-check=1 を付けて
+		//   叩くだけで、誰でもこのサイトから sonoTracks への問い合わせを
+		//   何度でも起こせてしまう。
+		$forced = is_admin()
+			&& ! empty( $_GET['force-check'] ) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			&& current_user_can( 'update_plugins' );
+
+		$cached = $forced ? false : get_transient( $key );
 		if ( is_array( $cached ) ) {
 			// ★ **取り出すときにも確かめる。** 検証は取り込む時だけ、にすると、
 			//   option を書ける別の経路（他のプラグインの穴など）で
