@@ -3,7 +3,7 @@
  * Plugin Name: sonoTracks Discography
  * Plugin URI:  https://sono-tracks.com/
  * Description: sonoTracks で販売している自分の作品一覧を、ショートコード [sonotracks_discography] でサイトに表示します。作品を追加・公開・非公開にすると自動で反映されます。
- * Version:     1.2.1
+ * Version:     1.3.0
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author:      sono
@@ -49,7 +49,7 @@ if ( ! class_exists( 'SonoTracks_Discography' ) ) :
 
 final class SonoTracks_Discography {
 
-	const VERSION = '1.2.1';
+	const VERSION = '1.3.0';
 
 	/** 設定を1つの option にまとめる（増えたときに option が散らからないように） */
 	const OPTION = 'sonotracks_discography_settings';
@@ -124,6 +124,80 @@ final class SonoTracks_Discography {
 		return ( is_array( $settings ) && isset( $settings['slug'] ) ) ? (string) $settings['slug'] : '';
 	}
 
+	/**
+	 * 設定画面から変えられる見た目の項目。
+	 *
+	 * ★ 形（type）ごとに、入れてよい値を**許すものだけ**決めてある。
+	 *   ここを通らない値は捨てて、CSS 側の既定にそのまま任せる。
+	 *   入れた文字列は `<style>` の中に出るので、`}` や `</style>` の
+	 *   混入を「除く」のではなく「そもそも通さない」方針にしている。
+	 * ★ 変数名は assets/sonotracks-discography.css の var() と同じもの。
+	 *   ずれると設定しても効かないので、README の表とも揃えること。
+	 */
+	private static function style_fields() {
+		return array(
+			'gap'            => array( 'label' => '作品どうしの間隔', 'var' => '--sonotracks-dg-gap', 'type' => 'length', 'placeholder' => '16px' ),
+			'min'            => array( 'label' => '1枠の最小幅', 'var' => '--sonotracks-dg-min', 'type' => 'length', 'placeholder' => '140px' ),
+			'radius'         => array( 'label' => 'ジャケットの角丸', 'var' => '--sonotracks-dg-radius', 'type' => 'length', 'placeholder' => '4px' ),
+			'ratio'          => array( 'label' => 'ジャケットの縦横比', 'var' => '--sonotracks-dg-ratio', 'type' => 'ratio', 'placeholder' => '1 / 1' ),
+			'link_color'     => array( 'label' => '作品カードの文字色', 'var' => '--sonotracks-dg-link-color', 'type' => 'color' ),
+			'title_color'    => array( 'label' => '作品名の色', 'var' => '--sonotracks-dg-title-color', 'type' => 'color' ),
+			'title_weight'   => array( 'label' => '作品名の太さ', 'var' => '--sonotracks-dg-title-weight', 'type' => 'weight' ),
+			'title_size'     => array( 'label' => '作品名の大きさ', 'var' => '--sonotracks-dg-title-size', 'type' => 'length', 'placeholder' => '1em' ),
+			'artist_color'   => array( 'label' => 'アーティスト名の色', 'var' => '--sonotracks-dg-artist-color', 'type' => 'color' ),
+			'artist_opacity' => array( 'label' => 'アーティスト名の薄さ', 'var' => '--sonotracks-dg-artist-opacity', 'type' => 'opacity', 'placeholder' => '0.8' ),
+			'price_color'    => array( 'label' => '価格の色', 'var' => '--sonotracks-dg-price-color', 'type' => 'color' ),
+			'meta_size'      => array( 'label' => 'アーティスト名と価格の大きさ', 'var' => '--sonotracks-dg-meta-size', 'type' => 'length', 'placeholder' => '0.9em' ),
+			'pager_color'    => array( 'label' => 'ページ送りの文字色', 'var' => '--sonotracks-dg-pager-color', 'type' => 'color' ),
+			'pager_current'  => array( 'label' => '現在ページの下線の色', 'var' => '--sonotracks-dg-pager-current', 'type' => 'color' ),
+		);
+	}
+
+	/** 保存済みの見た目の設定 */
+	public static function get_style() {
+		$settings = get_option( self::OPTION, array() );
+		return ( is_array( $settings ) && isset( $settings['style'] ) && is_array( $settings['style'] ) )
+			? $settings['style'] : array();
+	}
+
+	/**
+	 * 見た目の値を1つ検証する。**通らなければ空文字**（＝設定なし・既定のまま）。
+	 *
+	 * @return string
+	 */
+	private static function sanitize_style_value( $type, $raw ) {
+		// 文字列以外（配列など）は、変換して警告を出す前に捨てる
+		if ( ! is_string( $raw ) && ! is_numeric( $raw ) ) {
+			return '';
+		}
+		$v = trim( (string) $raw );
+		if ( '' === $v ) {
+			return '';
+		}
+		switch ( $type ) {
+			case 'length':
+				// 数値＋単位だけ。負の値は入れさせない（間隔や角丸に負は意味が無い）
+				return preg_match( '/^[0-9]+(\.[0-9]+)?(px|rem|em|%)$/', $v ) ? $v : '';
+			case 'ratio':
+				// 1 / 1 や 16/9。空白の有無は問わないが、形はこれだけ
+				return preg_match( '#^[0-9]+(\.[0-9]+)?\s*/\s*[0-9]+(\.[0-9]+)?$#', $v ) ? $v : '';
+			case 'color':
+				// ★ WordPress の関数に任せる。#fff / #ffffff 以外は null が返る
+				$hex = sanitize_hex_color( $v );
+				return is_string( $hex ) ? $hex : '';
+			case 'opacity':
+				// ★ **入力された文字列をそのまま返す。** (string)(float) で正規化すると、
+				//   PHP 8 より前の float→文字列はロケイル依存で、他のプラグインが
+				//   setlocale を呼んでいる環境では 0.8 が "0,8" になる。
+				//   CSS は不正な宣言として捨てるので「入れたのに効かない」になる。
+				return preg_match( '/^(0(\.[0-9]+)?|1(\.0+)?)$/', $v ) ? $v : '';
+			case 'weight':
+				$allowed = array( 'normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900' );
+				return in_array( $v, $allowed, true ) ? $v : '';
+		}
+		return '';
+	}
+
 	public static function add_settings_page() {
 		add_options_page(
 			'sonoTracks Discography',
@@ -154,8 +228,11 @@ final class SonoTracks_Discography {
 	 *   受け取ってから ID を取り出すほうが、人にとっては素直。
 	 */
 	public static function sanitize_settings( $input ) {
-		$raw = is_array( $input ) && isset( $input['slug'] ) ? (string) $input['slug'] : '';
-		$raw = trim( $raw );
+		// ★ 文字列であることを先に確かめる。配列を送られると (string) が
+		//   PHP の警告を出したうえで "Array" になり、小文字化した "array" が
+		//   ID の形に合ってしまう（そのまま保存される）。
+		$raw = ( is_array( $input ) && isset( $input['slug'] ) && is_string( $input['slug'] ) )
+			? trim( $input['slug'] ) : '';
 
 		// URL で貼られた場合は最後のパス片を ID とみなす（/u/{slug}）
 		if ( false !== strpos( $raw, '/' ) ) {
@@ -183,8 +260,13 @@ final class SonoTracks_Discography {
 					'error'
 				);
 			}
-			// 不正な入力で既存の設定を消さない（表示が突然消えるのを避ける）
-			return array( 'slug' => self::get_slug() );
+			// ★ 不正な入力で既存の設定を消さない（表示が突然消えるのを避ける）。
+			//   **見た目の設定も一緒に残すこと。** ID を打ち間違えただけで、
+			//   積み上げた色や余白の指定まで消えてしまうのは理不尽。
+			return array(
+				'slug'  => self::get_slug(),
+				'style' => self::get_style(),
+			);
 		}
 
 		// ★ ID を変えたら、前の ID で取った表示が残らないようキャッシュを捨てる
@@ -192,14 +274,49 @@ final class SonoTracks_Discography {
 			self::flush_cache();
 		}
 
-		return array( 'slug' => $slug );
+		// 見た目の設定。形の合わない値は捨てて、CSS 側の既定に任せる
+		$style     = array();
+		$raw_style = ( is_array( $input ) && isset( $input['style'] ) && is_array( $input['style'] ) )
+			? $input['style'] : array();
+		$dropped   = array();
+		// 色は「指定する」に印を付けたものだけを使う。色の入力欄は空にできないため
+		// （空欄＝テーマに任せる、を別の印で表す）
+		$use = ( is_array( $input ) && isset( $input['style_use'] ) && is_array( $input['style_use'] ) )
+			? $input['style_use'] : array();
+		foreach ( self::style_fields() as $key => $field ) {
+			if ( 'color' === $field['type'] && ! isset( $use[ $key ] ) ) {
+				continue; // 指定しない＝テーマに任せる
+			}
+			$given = isset( $raw_style[ $key ] ) ? $raw_style[ $key ] : '';
+			$value = self::sanitize_style_value( $field['type'], $given );
+			if ( '' !== $value ) {
+				$style[ $key ] = $value;
+			} elseif ( ( is_string( $given ) || is_numeric( $given ) ) && '' !== trim( (string) $given ) ) {
+				// ★ 黙って捨てない。入れたのに効かない理由が分からないのが一番困る
+				$dropped[] = $field['label'];
+			}
+		}
+		if ( $dropped && function_exists( 'add_settings_error' ) ) {
+			add_settings_error(
+				self::OPTION,
+				'sonotracks_dg_style',
+				'次の項目は書き方が合わないため、元の見た目のままにしました: ' . implode( '、', $dropped ),
+				'warning'
+			);
+		}
+
+		return array(
+			'slug'  => $slug,
+			'style' => $style,
+		);
 	}
 
 	public static function render_settings_page() {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
-		$slug = self::get_slug();
+		$slug  = self::get_slug();
+		$style = self::get_style();
 		?>
 		<div class="wrap">
 			<h1>sonoTracks Discography</h1>
@@ -231,6 +348,69 @@ final class SonoTracks_Discography {
 							</p>
 						</td>
 					</tr>
+				</table>
+
+				<h2>見た目</h2>
+				<p>
+					変えたいところだけ入れてください。空欄のままにした項目は、お使いのテーマの
+					見た目をそのまま引き継ぎます。色は「この色を指定する」に印を付けたものだけが
+					使われます（印が無ければテーマのままです）。
+				</p>
+				<table class="form-table" role="presentation">
+					<?php foreach ( self::style_fields() as $key => $field ) : ?>
+						<?php
+						$id    = 'sonotracks-dg-style-' . str_replace( '_', '-', $key );
+						$value = isset( $style[ $key ] ) ? $style[ $key ] : '';
+						$name  = self::OPTION . '[style][' . $key . ']';
+						?>
+						<tr>
+							<th scope="row"><label for="<?php echo esc_attr( $id ); ?>"><?php echo esc_html( $field['label'] ); ?></label></th>
+							<td>
+								<?php if ( 'color' === $field['type'] ) : ?>
+									<?php
+									// ★ 色は自由入力にせず選ばせる（書き方の間違いが起こらない）。
+									//   使うかどうかは別の印で表す——色の入力欄は「空」にできないため。
+									// ★ **入力欄を disabled にしない。** 以前は印が付くまで disabled にし、
+									//   JavaScript で外していた。その形だと JS が動かない環境で、印を付けて
+									//   保存しても disabled の欄は送信されず、**何も起きないうえ警告も出ない**
+									//   （解除だけは動くので、設定だけが片道で壊れる）。
+									//   使うかどうかはサーバー側が印で判断しているので、常に送ってよい。
+									// ★ 印を先に置く。操作できるものより先に、操作の意味を読ませる。
+									?>
+									<label>
+										<input type="checkbox" name="<?php echo esc_attr( self::OPTION . '[style_use][' . $key . ']' ); ?>"
+											value="1" <?php checked( '' !== $value ); ?> />
+										この色を指定する
+										<?php // 同じ文言の印が6つ並ぶので、読み上げには項目名を添える ?>
+										<span class="screen-reader-text">（<?php echo esc_html( $field['label'] ); ?>）</span>
+									</label>
+									<input type="color" id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $name ); ?>"
+										value="<?php echo esc_attr( '' !== $value ? $value : '#000000' ); ?>" />
+								<?php elseif ( 'weight' === $field['type'] ) : ?>
+									<select id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $name ); ?>">
+										<option value="">テーマに任せる</option>
+										<?php foreach ( array( 'normal' => 'ふつう', 'bold' => '太字', '600' => 'やや太字（600）' ) as $v => $l ) : ?>
+											<option value="<?php echo esc_attr( $v ); ?>" <?php selected( $value, $v ); ?>><?php echo esc_html( $l ); ?></option>
+										<?php endforeach; ?>
+									</select>
+								<?php else : ?>
+									<input type="text" id="<?php echo esc_attr( $id ); ?>" name="<?php echo esc_attr( $name ); ?>"
+										value="<?php echo esc_attr( $value ); ?>" class="small-text"
+										placeholder="<?php echo esc_attr( isset( $field['placeholder'] ) ? $field['placeholder'] : '' ); ?>"
+										aria-describedby="<?php echo esc_attr( $id . '-help' ); ?>" />
+									<span class="description" id="<?php echo esc_attr( $id . '-help' ); ?>">
+										<?php
+										echo esc_html(
+											'ratio' === $field['type'] ? '例: 1 / 1、16 / 9'
+												: ( 'opacity' === $field['type'] ? '0〜1（例: 0.8）'
+													: '数値と単位（例: ' . ( isset( $field['placeholder'] ) ? $field['placeholder'] : '16px' ) . '）' )
+										);
+										?>
+									</span>
+								<?php endif; ?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
 				</table>
 				<?php submit_button(); ?>
 			</form>
@@ -515,6 +695,38 @@ final class SonoTracks_Discography {
 
 	// ── 表示 ────────────────────────────────────────────────────────────
 
+	/**
+	 * 見た目の設定（設定画面で入れた値）を、CSS の変数として書き出す。
+	 *
+	 * ★ **`wp_add_inline_style` で本体の CSS にぶら下げる。** 直接 wp_head に
+	 *   echo すると、ショートコードを置いていないページにも出てしまい、
+	 *   本体の CSS との前後関係も保証できない。この形なら、一覧を出す
+	 *   ページでだけ、必ず本体の直後に置かれる。
+	 *
+	 * ★ ここは**利用者が入れた文字列を `<style>` の中へ出す**場所。
+	 *   検証を通っていない値は1つも書かない（下の sanitize_style で、
+	 *   型ごとに形を確かめ、外れた値は捨てている）。
+	 */
+	private static function inline_style() {
+		$style = self::get_style();
+		$decls = array();
+		foreach ( self::style_fields() as $key => $field ) {
+			// ★ **出すときにも検証を通す。** 保存時の検証は管理画面の保存経路
+			//   （register_setting の sanitize_callback）でしか走らない。
+			//   WP-CLI・cron・移行ツール・他のプラグインの update_option から
+			//   書かれた値は、検証を経ずにここへ来る。`<style>` に出す場所なので、
+			//   出口でももう一度確かめる。
+			$value = self::sanitize_style_value(
+				$field['type'],
+				isset( $style[ $key ] ) ? $style[ $key ] : ''
+			);
+			if ( '' !== $value ) {
+				$decls[] = $field['var'] . ':' . $value;
+			}
+		}
+		return $decls ? '.sonotracks-dg{' . implode( ';', $decls ) . '}' : '';
+	}
+
 	public static function register_assets() {
 		wp_register_style(
 			'sonotracks-discography',
@@ -522,6 +734,24 @@ final class SonoTracks_Discography {
 			array(),
 			self::VERSION
 		);
+		$inline = self::inline_style();
+		if ( '' !== $inline ) {
+			wp_add_inline_style( 'sonotracks-discography', $inline );
+		}
+
+		// ★ **本文にショートコードがあるなら、ここで読み込む＝head に入る。**
+		//   ショートコードの中で読み込むと、WordPress は既に head を出し終えて
+		//   いるので footer へ回され、表示が一瞬崩れて見えることがある。
+		// ★ ここで見つけられるのは本文に直接書かれた場合だけ。ウィジェットや
+		//   テンプレートに置いた場合は見つからないが、**ショートコード側の
+		//   読み込みが残っているので表示は崩れない**（footer になるだけ）。
+		//   取りこぼしても壊れない形にしてある。
+		if ( is_singular() ) {
+			$post = get_post();
+			if ( $post && has_shortcode( (string) $post->post_content, 'sonotracks_discography' ) ) {
+				wp_enqueue_style( 'sonotracks-discography' );
+			}
+		}
 	}
 
 	/**
