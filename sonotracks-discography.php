@@ -3,7 +3,7 @@
  * Plugin Name: sonoTracks Discography
  * Plugin URI:  https://sono-tracks.com/
  * Description: sonoTracks で販売している自分の作品一覧を、ショートコード [sonotracks_discography] でサイトに表示します。作品を追加・公開・非公開にすると自動で反映されます。
- * Version:     1.2.0
+ * Version:     1.2.1
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author:      sono
@@ -49,7 +49,7 @@ if ( ! class_exists( 'SonoTracks_Discography' ) ) :
 
 final class SonoTracks_Discography {
 
-	const VERSION = '1.2.0';
+	const VERSION = '1.2.1';
 
 	/** 設定を1つの option にまとめる（増えたときに option が散らからないように） */
 	const OPTION = 'sonotracks_discography_settings';

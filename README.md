@@ -134,6 +134,9 @@ WordPress が sonoTracks の公開APIを**読みに行きます**（pull型）�
   （sonoloop リポジトリ `app/api/tracks/public/artist-releases/route.ts`）
 - 叩き先を変えたい場合は `wp-config.php` などで
   `define('SONOTRACKS_API_ORIGIN', 'https://...')` を定義してください
+- 公開リポジトリ: <https://github.com/miryna1978/sonotracks-discography>
+  （配布と履歴の鏡。**開発の本体は sonoTracks 側**で、リリースのたびに
+  `./scripts/publish-wp-plugin.sh` が上書きします）
 - 設計の背景は `docs/sonotracks-spec.md` 第9.4章（pull型を選んだ理由）
 - 音楽メディア（media.sono-music.com）側は、同じAPIを `?wp_user_id=` で読んでいます
   （テーマの `inc/setup-sonotracks-new-releases.php`）。こちらのプラグインとは別物です
